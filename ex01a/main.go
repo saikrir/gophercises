@@ -30,9 +30,13 @@ func loadQuestions() [][]string {
 
 func getUserInput(scanner *bufio.Scanner) (string, error) {
 	if scanner.Scan() {
-		return strings.Trim(scanner.Text(), " "), nil
+		return strings.TrimSpace(scanner.Text()), nil
 	}
 	return "", fmt.Errorf("failed to read input from user")
+}
+
+type quizItem struct {
+	q, a string
 }
 
 func main() {
@@ -41,11 +45,11 @@ func main() {
 	var successCtr, failureCtr int
 	scanner := bufio.NewScanner(os.Stdin)
 	for i, record := range records {
-
+		qi := quizItem{q: strings.TrimSpace(record[0]),
+			a: strings.TrimSpace(record[1])}
 	repeat:
-
 		fmt.Printf("Question #%d: ", i+1)
-		fmt.Printf("What is %s ? ", record[0])
+		fmt.Printf("What is %s ? ", qi.q)
 
 		answer, err := getUserInput(scanner)
 		switch {
@@ -53,7 +57,7 @@ func main() {
 			log.Fatalln(err)
 		case answer == "":
 			goto repeat
-		case strings.EqualFold(answer, record[1]):
+		case strings.EqualFold(answer, qi.a):
 			successCtr++
 		default:
 			failureCtr++
