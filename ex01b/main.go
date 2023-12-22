@@ -2,6 +2,9 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"time"
+
 	"encoding/csv"
 	"fmt"
 	"log"
@@ -9,60 +12,83 @@ import (
 	"strings"
 )
 
-const CSV_FILE_PATH = "./problems.csv"
+func readYorN(scanner *bufio.Scanner) string {
 
-func loadQuestions() [][]string {
-	csvFile, err := os.Open(CSV_FILE_PATH)
-	if err != nil {
-		log.Fatalln("Failed to open file ", CSV_FILE_PATH, err)
+	for {
+		fmt.Print("Ready? Y/N ")
+		if scanner.Scan() {
+			res := strings.ToUpper(scanner.Text())
+			switch res {
+			case "Y", "N":
+				return res
+			default:
+				continue
+			}
+		}
 	}
-	defer csvFile.Close()
-
-	csvReader := csv.NewReader(csvFile)
-	records, err := csvReader.ReadAll()
-
-	if err != nil {
-		log.Fatalln("Failed to read all rows from CSV File")
-	}
-
-	return records
 }
 
-func getUserInput(scanner *bufio.Scanner) (string, error) {
-	if scanner.Scan() {
-		return strings.TrimSpace(scanner.Text()), nil
-	}
-	return "", fmt.Errorf("failed to read input from user")
-}
-
-type quizItem struct {
-	q, a string
+func evalAnswer(answer string, userAnswer string, evalResultChan chan<- bool) {
+	evalResultChan <- strings.EqualFold(userAnswer, answer)
 }
 
 func main() {
-	var records [][]string = loadQuestions()
-	fmt.Printf("Welcome to Quiz, You have %d questions to answer\n Lets Start \n", len(records))
-	var successCtr, failureCtr int
-	scanner := bufio.NewScanner(os.Stdin)
-	for i, record := range records {
-		qi := quizItem{q: strings.TrimSpace(record[0]),
-			a: strings.TrimSpace(record[1])}
-	repeat:
-		fmt.Printf("Question #%d: ", i+1)
-		fmt.Printf("What is %s ? ", qi.q)
 
-		answer, err := getUserInput(scanner)
-		switch {
-		case err != nil:
-			log.Fatalln(err)
-		case answer == "":
-			goto repeat
-		case strings.EqualFold(answer, qi.a):
-			successCtr++
-		default:
-			failureCtr++
+	var (
+		questionsFile *os.File
+		err           error
+	)
+
+	if questionsFile, err = os.OpenFile("problems.csv", os.O_RDONLY, 0666); err != nil {
+		log.Fatalln("failed to open problems file")
+	}
+
+	defer questionsFile.Close()
+
+	fmt.Printf("%10s\n", "Welcome to Quiz ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+
+	problemsCsvReader := csv.NewReader(questionsFile)
+
+	records, _ := problemsCsvReader.ReadAll()
+
+	var nCorrectAnswers int
+	ctx := context.Background()
+	answerChan := make(chan bool, len(records))
+
+	for _, questionAndAns := range records {
+
+		question, answer := questionAndAns[0], questionAndAns[1]
+
+	readInput:
+		fmt.Printf("Question: %s \n", question)
+		fmt.Print("Press Any Key to Start the Timer ....\n")
+		if scanner.Scan() {
+			fmt.Println()
+			fmt.Printf("Answer \t:")
+		}
+
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+
+		if scanner.Scan() {
+			userAnswer := strings.TrimSpace(scanner.Text())
+			if userAnswer == "" {
+				goto readInput
+			}
+			go evalAnswer(answer, userAnswer, answerChan)
+		}
+
+		select {
+		case res := <-answerChan:
+			if res {
+				nCorrectAnswers++
+			}
+		case <-ctx.Done():
+			log.Fatalln("Timeup!")
 		}
 	}
 
-	fmt.Printf("You have completed the quiz, your score is %d/%d \n", successCtr, len(records))
+	fmt.Printf("You Have completed the quiz with %d correct answers out of %d \n", nCorrectAnswers, len(records))
 }
