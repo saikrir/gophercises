@@ -28,9 +28,16 @@ func readYorN(scanner *bufio.Scanner) string {
 	}
 }
 
-func evalAnswer(answer string, userAnswer string, evalResultChan chan<- bool) {
-	evalResultChan <- strings.EqualFold(userAnswer, answer)
+func evalAnswer(answer string, scanner *bufio.Scanner, evalResultChan chan<- bool) {
+
+	if scanner.Scan() {
+		userAnswer := strings.TrimSpace(scanner.Text())
+		evalResultChan <- strings.EqualFold(userAnswer, answer)
+	}
+
 }
+
+const timeout = 3
 
 func main() {
 
@@ -45,7 +52,7 @@ func main() {
 
 	defer questionsFile.Close()
 
-	fmt.Printf("%10s\n", "Welcome to Quiz ")
+	fmt.Printf("Welcome to Quiz, You have %d seconds for each Answer \n", timeout)
 
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -54,31 +61,21 @@ func main() {
 	records, _ := problemsCsvReader.ReadAll()
 
 	var nCorrectAnswers int
-	ctx := context.Background()
-	answerChan := make(chan bool, len(records))
 
+	ctx := context.Background()
+
+	answerChan := make(chan bool)
+
+outer:
 	for _, questionAndAns := range records {
 
 		question, answer := questionAndAns[0], questionAndAns[1]
-
-	readInput:
-		fmt.Printf("Question: %s \n", question)
-		fmt.Print("Press Any Key to Start the Timer ....\n")
-		if scanner.Scan() {
-			fmt.Println()
-			fmt.Printf("Answer \t:")
-		}
+		fmt.Printf("Question %s: \t", question)
 
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 
-		if scanner.Scan() {
-			userAnswer := strings.TrimSpace(scanner.Text())
-			if userAnswer == "" {
-				goto readInput
-			}
-			go evalAnswer(answer, userAnswer, answerChan)
-		}
+		go evalAnswer(answer, scanner, answerChan)
 
 		select {
 		case res := <-answerChan:
@@ -86,7 +83,8 @@ func main() {
 				nCorrectAnswers++
 			}
 		case <-ctx.Done():
-			log.Fatalln("Timeup!")
+			fmt.Println("\nSorry, Time is up!")
+			break outer
 		}
 	}
 
